@@ -247,8 +247,10 @@ std::string read_statm() {
 
 static void print_dump_stackmap_header(const char *sort_key)
 {
+	char comm[BUF_SZ] = {0, };
+	utils::get_comm_name(comm, BUF_SZ);
 	pr_out("[heaptrace] dump allocation sorted by '%s' for /proc/%d/maps (%s)\n",
-		sort_key, utils::gettid(), utils::get_comm_name().c_str());
+		sort_key, utils::gettid(), comm);
 }
 
 static void print_dump_stackmap_footer(

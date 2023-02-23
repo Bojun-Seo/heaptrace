@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstdarg>
+#include <cstring>
 
 #include <string>
 #include <sstream>
@@ -12,6 +13,8 @@
 #include "utils.h"
 
 namespace utils {
+
+static char comm[BUF_SZ] = {0, };
 
 std::string asprintf(const char* fmt, ...)
 {
@@ -28,18 +31,34 @@ std::string asprintf(const char* fmt, ...)
 	return str;
 }
 
-std::string get_comm_name(void)
+void get_comm_name(char* buf, int buf_size)
 {
-	std::string comm;
-	std::stringstream ss;
-	int tid = utils::gettid();
+	FILE *fp = NULL;
+	int tid;
+	int len;
 
-	ss << "/proc/" << tid << "/comm";
+	if (comm[0] != '\0') {
+		strncpy(buf, comm, buf_size);
+		return;
+	}
 
-	std::ifstream fs(ss.str());
-	fs >> comm;
-
-	return comm;
+	tid = utils::gettid();
+	memset(buf, 0, buf_size);
+	snprintf(buf, buf_size, "/proc/%d/comm", tid);
+	fp = fopen(buf, "r");
+	if (fp == NULL) {
+		printf("Failed to open %s\n", buf);
+		return;
+	}
+	memset(buf, 0, buf_size);
+	if (!fgets(buf, buf_size, fp)) {
+		printf("Failed to read file %s\n", buf);
+	}
+	len = strlen(buf);
+	if (len > 0) {
+		buf[len - 1] = '\0';
+	}
+	strncpy(comm, buf, buf_size);
 }
 
 std::vector<std::string> string_split(std::string str, char delim)

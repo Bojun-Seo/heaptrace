@@ -16,6 +16,8 @@
 # define _GNU_SOURCE
 #endif
 
+#define BUF_SZ 128
+
 namespace utils {
 
 typedef std::chrono::duration<uint64_t>             bytes;
@@ -30,7 +32,7 @@ static int gettid(void)
 
 std::string asprintf(const char* fmt, ...);
 
-std::string get_comm_name(void);
+void get_comm_name(char* buf, int buf_size);
 
 std::vector<std::string> string_split(std::string str, char delim);
 

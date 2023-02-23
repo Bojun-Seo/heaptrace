@@ -71,8 +71,10 @@ static void heaptrace_init()
 {
 	auto* tfs = &thread_flags;
 	int pid = getpid();
+	char comm[BUF_SZ] = {0, };
 	std::stringstream ss;
-	std::string comm = utils::get_comm_name();
+
+	utils::get_comm_name(comm, BUF_SZ);
 
 	real_malloc = (MallocFunction)dlsym(RTLD_NEXT, "malloc");
 	real_free = (FreeFunction)dlsym(RTLD_NEXT, "free");
@@ -96,7 +98,7 @@ static void heaptrace_init()
 	opts.outfile = getenv("HEAPTRACE_OUTFILE");
 	if (opts.outfile) {
 		ss << opts.outfile << "." << pid
-				   << "." << comm.c_str();
+				   << "." << comm;
 		outfp = fopen(ss.str().c_str(), "w");
 	}
 	else
@@ -104,7 +106,7 @@ static void heaptrace_init()
 
 	if (!opts.flamegraph) {
 		pr_out("[heaptrace] initialized for /proc/%d/maps (%s)\n",
-			pid, comm.c_str());
+			pid, comm);
 	}
 
 	initialized = true;
@@ -115,11 +117,13 @@ static void heaptrace_fini()
 {
 	auto* tfs = &thread_flags;
 	int pid = getpid();
-	std::string comm = utils::get_comm_name();
+	char comm[BUF_SZ] = {0, };
+
+	utils::get_comm_name(comm, BUF_SZ);
 
 	if (!opts.flamegraph) {
 		pr_out("[heaptrace]   finalized for /proc/%d/maps (%s)\n",
-			pid, comm.c_str());
+			pid, comm);
 	}
 
 	dump_stackmap(opts.sort_keys, opts.flamegraph);
