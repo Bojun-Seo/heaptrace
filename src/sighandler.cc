@@ -7,13 +7,13 @@
 
 static void sigusr1_handler(int signo)
 {
-	pr_dbg("\n=== sigusr1_handler(%d) ===\n", signo);
+	pr_dbg("\n=== sig40_handler(%d) ===\n", signo);
 	dump_stackmap("size", opts.flamegraph);
 }
 
 static void sigusr2_handler(int signo)
 {
-	pr_dbg("\n=== sigusr2_handler(%d) ===\n", signo);
+	pr_dbg("\n=== sig50_handler(%d) ===\n", signo);
 	dump_stackmap("count", opts.flamegraph);
 }
 
@@ -41,11 +41,11 @@ void sighandler_init(void)
 	sigemptyset(&sigquit.sa_mask);
 	sigquit.sa_flags = 0;
 
-	if (sigaction(SIGUSR1, &sigusr1, nullptr) == -1)
-		pr_dbg("signal(SIGUSR1) error");
+	if (sigaction(40, &sigusr1, nullptr) == -1)
+		pr_dbg("signal(40) error");
 
-	if (sigaction(SIGUSR2, &sigusr2, nullptr) == -1)
-		pr_dbg("signal(SIGUSR2) error");
+	if (sigaction(41, &sigusr2, nullptr) == -1)
+		pr_dbg("signal(41) error");
 
 	if (sigaction(SIGQUIT, &sigquit, nullptr) == -1)
 		pr_dbg("signal(SIGQUIT) error");
