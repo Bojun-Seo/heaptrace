@@ -15,9 +15,9 @@
 #include <fstream>
 #include <iomanip>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <vector>
-#include <mutex>
 
 #include "compiler.h"
 #include "heaptrace.h"
@@ -62,8 +62,9 @@ static void lazyinit_ignorevec()
 static bool is_ignored(const std::string &report)
 {
 	lazyinit_ignorevec();
-	return std::any_of(ignorevec.begin(), ignorevec.end(), [&report](const std::string& s)
-			   { return report.find(s) != std::string::npos; });
+	return std::any_of(ignorevec.begin(), ignorevec.end(), [&report](const std::string &s) {
+		return report.find(s) != std::string::npos;
+	});
 }
 
 // record_backtrace() is defined in stacktrace.h as an inline function.
@@ -133,8 +134,8 @@ static void get_backtrace_string(int count, void *addr, std::stringstream &ss_bt
 	int dl_ret;
 	int len = SYMBOL_MAXLEN;
 
-	ss_bt << std::dec << count << " [0x" << std::hex <<
-		std::setw(4 + __SIZEOF_LONG__) << (unsigned long)addr << "] ";
+	ss_bt << std::dec << count << " [0x" << std::hex << std::setw(4 + __SIZEOF_LONG__)
+	      << (unsigned long)addr << "] ";
 	// dladdr() translates address to symbolic info.
 	dl_ret = dladdr(addr, &dlip);
 	if (dl_ret == 0) {
@@ -169,9 +170,15 @@ static void get_backtrace_string_flamegraph(void *addr, const char *semicolon,
 	char *symbol;
 	int offset;
 	int status;
+	int dl_ret;
 
 	// dladdr() translates address to symbolic info.
-	dladdr(addr, &dlip);
+	dl_ret = dladdr(addr, &dlip);
+	if (dl_ret == 0) {
+		// dlip is left untouched on failure so it cannot be read.
+		ss_bt << semicolon << "?";
+		return;
+	}
 
 	symbol = abi::__cxa_demangle(dlip.dli_sname, nullptr, nullptr, &status);
 
