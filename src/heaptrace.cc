@@ -1,6 +1,7 @@
 /* Copyright (c) 2022 LG Electronics Inc. */
 /* SPDX-License-Identifier: GPL-2.0 */
 #include <argp.h>
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -10,6 +11,7 @@
 #include <string>
 
 #include "heaptrace.h"
+#include "utils.h"
 
 #define HEAPTRACE_VERSION "v0.01"
 
@@ -27,6 +29,10 @@ enum options {
 	OPT_flamegraph,
 	OPT_outfile,
 	OPT_ignore,
+	OPT_dsan,
+	OPT_dsan_quarantine,
+	OPT_dsan_history,
+	OPT_dsan_abort,
 };
 
 static struct argp_option heaptrace_options[] = {
@@ -36,6 +42,13 @@ static struct argp_option heaptrace_options[] = {
 	{ "flame-graph", OPT_flamegraph, nullptr, 0, "Print heap trace info in flamegraph format" },
 	{ "outfile", OPT_outfile, "FILE", 0, "Save log messages to this file" },
 	{ "ignore", OPT_ignore, "FILE", 0, "Apply ignore rules from this file" },
+	{ "dsan", OPT_dsan, nullptr, 0, "Detect double free and report where it happened" },
+	{ "dsan-quarantine", OPT_dsan_quarantine, "SIZE", 0,
+	  "Hold back SIZE bytes of freed memory to keep its address from being "
+	  "reused (default 8M, 0 disables it but may cause false reports)" },
+	{ "dsan-history", OPT_dsan_history, "NUM", 0,
+	  "Remember the last NUM freed objects (default 16384)" },
+	{ "dsan-abort", OPT_dsan_abort, nullptr, 0, "Abort on the first double free" },
 	{ nullptr }
 };
 
@@ -66,6 +79,28 @@ static error_t parse_option(int key, char *arg, struct argp_state *state)
 
 	case OPT_ignore:
 		opts->ignore = arg;
+		break;
+
+	case OPT_dsan:
+		opts->dsan = true;
+		break;
+
+	// the dsan sub-options below imply --dsan
+	case OPT_dsan_quarantine:
+		opts->dsan = true;
+		if (!utils::parse_size(arg, &opts->dsan_quarantine))
+			argp_error(state, "invalid --dsan-quarantine value: %s", arg);
+		break;
+
+	case OPT_dsan_history:
+		opts->dsan = true;
+		if (!utils::parse_size(arg, &opts->dsan_history) || opts->dsan_history == 0)
+			argp_error(state, "invalid --dsan-history value: %s", arg);
+		break;
+
+	case OPT_dsan_abort:
+		opts->dsan = true;
+		opts->dsan_abort = true;
 		break;
 
 	case ARGP_KEY_ARG:
@@ -111,6 +146,10 @@ static void init_options(int argc, char *argv[])
 	opts.top = 10;
 	opts.sort_keys = "size";
 	opts.flamegraph = false;
+	opts.dsan = false;
+	opts.dsan_quarantine = DSAN_DEFAULT_QUARANTINE;
+	opts.dsan_history = DSAN_DEFAULT_HISTORY;
+	opts.dsan_abort = false;
 
 	argp_parse(&argp, argc, argv, ARGP_IN_ORDER, nullptr, &opts);
 }
@@ -145,6 +184,19 @@ static void setup_child_environ(struct opts *opts, int argc, char *argv[])
 
 	if (opts->ignore)
 		setenv("HEAPTRACE_IGNORE", opts->ignore, 1);
+
+	if (opts->dsan) {
+		setenv("HEAPTRACE_DSAN", "1", 1);
+
+		snprintf(buf, sizeof(buf), "%" PRIu64, opts->dsan_quarantine);
+		setenv("HEAPTRACE_DSAN_QUARANTINE", buf, 1);
+
+		snprintf(buf, sizeof(buf), "%" PRIu64, opts->dsan_history);
+		setenv("HEAPTRACE_DSAN_HISTORY", buf, 1);
+
+		if (opts->dsan_abort)
+			setenv("HEAPTRACE_DSAN_ABORT", "1", 1);
+	}
 }
 
 int main(int argc, char *argv[])

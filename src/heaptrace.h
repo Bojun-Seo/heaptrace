@@ -3,6 +3,7 @@
 #ifndef HEAPTRACE_HEAPTRACE_H
 #define HEAPTRACE_HEAPTRACE_H
 
+#include <cstdint>
 #include <cstdio>
 
 extern FILE *outfp;
@@ -34,6 +35,10 @@ struct thread_flags_t {
 };
 extern thread_local struct thread_flags_t thread_flags;
 
+// Default option values for the dsan feature.
+constexpr uint64_t DSAN_DEFAULT_QUARANTINE = 8 * 1024 * 1024;
+constexpr uint64_t DSAN_DEFAULT_HISTORY = 16384;
+
 struct opts {
 	int idx;
 	char *exename;
@@ -43,6 +48,12 @@ struct opts {
 	bool flamegraph;
 	char *outfile;
 	char *ignore;
+
+	// dsan: double free sanitizer
+	bool dsan;
+	uint64_t dsan_quarantine;
+	uint64_t dsan_history;
+	bool dsan_abort;
 };
 
 extern opts opts;

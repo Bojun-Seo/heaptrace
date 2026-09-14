@@ -106,6 +106,28 @@ __constructor static void heaptrace_init()
 	else
 		outfp = stdout;
 
+	// parsed after outfp is set up so that a bad value can be reported
+
+	env = getenv("HEAPTRACE_DSAN");
+	opts.dsan = env ? std::stoi(env) : false;
+
+	env = getenv("HEAPTRACE_DSAN_ABORT");
+	opts.dsan_abort = env ? std::stoi(env) : false;
+
+	opts.dsan_quarantine = DSAN_DEFAULT_QUARANTINE;
+	env = getenv("HEAPTRACE_DSAN_QUARANTINE");
+	if (env && !utils::parse_size(env, &opts.dsan_quarantine)) {
+		pr_out("[heaptrace] ignoring invalid HEAPTRACE_DSAN_QUARANTINE: %s\n", env);
+		opts.dsan_quarantine = DSAN_DEFAULT_QUARANTINE;
+	}
+
+	opts.dsan_history = DSAN_DEFAULT_HISTORY;
+	env = getenv("HEAPTRACE_DSAN_HISTORY");
+	if (env && (!utils::parse_size(env, &opts.dsan_history) || opts.dsan_history == 0)) {
+		pr_out("[heaptrace] ignoring invalid HEAPTRACE_DSAN_HISTORY: %s\n", env);
+		opts.dsan_history = DSAN_DEFAULT_HISTORY;
+	}
+
 	if (!opts.flamegraph) {
 		pr_out("[heaptrace] initialized for /proc/%d/maps (%s)\n", pid, comm.c_str());
 	}
