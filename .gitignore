@@ -1,5 +1,6 @@
 heaptrace
 *.o
+*.d
 *.so
 *.out
 *.patch

@@ -38,6 +38,11 @@ endif
 LIB_CXXFLAGS := $(COMMON_CXXFLAGS) -fPIC -fno-omit-frame-pointer -fvisibility=hidden
 LIB_LDFLAGS  := $(LDFLAGS) -ldl
 
+# let the compiler record the headers each object depends on.  -MMD leaves the
+# system headers out and -MP adds a phony target for each header so that
+# removing one doesn't break the build with a missing prerequisite.
+DEPFLAGS := -MMD -MP
+
 ifndef $(DEPTH)
 # default backtrace depth is 8
 DEPTH := 8
@@ -55,10 +60,12 @@ TARGETS := heaptrace libheaptrace.so
 # for libheaptrace.so
 LIB_SRCS := src/libheaptrace.cc src/stacktrace.cc src/sighandler.cc src/utils.cc
 LIB_OBJS := $(patsubst %.cc,$(objdir)/%.o,$(LIB_SRCS))
+LIB_DEPS := $(LIB_OBJS:.o=.d)
 
 # for heaptrace
 HEAPTRACE_SRCS := src/heaptrace.cc
 HEAPTRACE_OBJS := $(patsubst %.cc,$(objdir)/%.o,$(HEAPTRACE_SRCS))
+HEAPTRACE_DEPS := $(HEAPTRACE_OBJS:.o=.d)
 
 # build rule begin
 all: $(TARGETS)
@@ -68,10 +75,10 @@ heaptrace: $(HEAPTRACE_OBJS)
 	$(QUIET_CXX)$(CXX) $(COMMON_CXXFLAGS) -o $(objdir)/$@ $(HEAPTRACE_OBJS)
 
 $(LIB_OBJS): $(objdir)/%.o: $(srcdir)/%.cc
-	$(QUIET_CXX)$(CXX) $(LIB_CXXFLAGS) -c -o $@ $<
+	$(QUIET_CXX)$(CXX) $(LIB_CXXFLAGS) $(DEPFLAGS) -c -o $@ $<
 
 $(HEAPTRACE_OBJS): $(objdir)/%.o: $(srcdir)/%.cc
-	$(QUIET_CXX)$(CXX) $(COMMON_CXXFLAGS) -c -o $@ $<
+	$(QUIET_CXX)$(CXX) $(COMMON_CXXFLAGS) $(DEPFLAGS) -c -o $@ $<
 
 libheaptrace.so: $(LIB_OBJS)
 	$(QUIET_LINK)$(CXX) -shared -o $(objdir)/$@ $^ $(LIB_LDFLAGS)
@@ -87,4 +94,10 @@ uninstall:
 
 clean:
 	rm -f $(objdir)/heaptrace $(objdir)/libheaptrace.so $(LIB_OBJS) $(HEAPTRACE_OBJS)
+	rm -f $(LIB_DEPS) $(HEAPTRACE_DEPS)
 	$(MAKE) -C samples clean
+
+# Rebuild an object when one of the headers it includes has changed.  This is
+# included at the end because the first rule of the first included file would
+# become the default goal otherwise.
+-include $(LIB_DEPS) $(HEAPTRACE_DEPS)
