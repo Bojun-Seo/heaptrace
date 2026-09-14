@@ -28,7 +28,7 @@ else
   CXX ?= g++
 endif
 
-COMMON_CXXFLAGS = $(CXXFLAGS) -std=c++11 -Wno-psabi
+COMMON_CXXFLAGS = $(CXXFLAGS) -std=c++11 -Wno-psabi -MMD -MP
 ifeq ($(DEBUG), 1)
   COMMON_CXXFLAGS += -O0 -g
 else
@@ -55,10 +55,12 @@ TARGETS := heaptrace libheaptrace.so
 # for libheaptrace.so
 LIB_SRCS := src/libheaptrace.cc src/stacktrace.cc src/sighandler.cc src/utils.cc
 LIB_OBJS := $(patsubst %.cc,$(objdir)/%.o,$(LIB_SRCS))
+LIB_DEPS := $(LIB_OBJS:.o=.d)
 
 # for heaptrace
 HEAPTRACE_SRCS := src/heaptrace.cc
 HEAPTRACE_OBJS := $(patsubst %.cc,$(objdir)/%.o,$(HEAPTRACE_SRCS))
+HEAPTRACE_DEPS := $(HEAPTRACE_OBJS:.o=.d)
 
 # build rule begin
 all: $(TARGETS)
@@ -87,4 +89,10 @@ uninstall:
 
 clean:
 	rm -f $(objdir)/heaptrace $(objdir)/libheaptrace.so $(LIB_OBJS) $(HEAPTRACE_OBJS)
+	rm -f $(LIB_DEPS) $(HEAPTRACE_DEPS)
 	$(MAKE) -C samples clean
+
+# Rebuild an object when one of the headers it includes has changed.  This is
+# included at the end because the first rule of the first included file would
+# become the default goal otherwise.
+-include $(LIB_DEPS) $(HEAPTRACE_DEPS)
