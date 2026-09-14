@@ -61,25 +61,23 @@ void __record_backtrace(size_t size, void *addr, stack_trace_t &stack_trace, int
 	object_info.size = size;
 }
 
-void release_backtrace(void *addr)
+// release_backtrace() is defined in stacktrace.h as an inline function.
+free_action_t __release_backtrace(void *addr, stack_trace_t &stack_trace, int nptrs)
 {
-	if (unlikely(!addr))
-		return;
-
 	std::lock_guard<std::recursive_mutex> lock(container_mutex);
 
 	pr_dbg("  release_backtrace(%p)\n", addr);
 
 	const auto &addrit = addrmap.find(addr);
 	if (unlikely(addrit == addrmap.end()))
-		return;
+		return free_action_t::release;
 
 	object_info_t &object_info = addrit->second;
-	stack_trace_t &stack_trace = object_info.stack_trace;
+	stack_trace_t &alloc_stack_trace = object_info.stack_trace;
 
-	const auto &stackit = stackmap.find(stack_trace);
+	const auto &stackit = stackmap.find(alloc_stack_trace);
 	if (unlikely(stackit == stackmap.end()))
-		return;
+		return free_action_t::release;
 
 	stack_info_t &stack_info = stackit->second;
 	stack_info.total_size -= object_info.size;
@@ -91,6 +89,21 @@ void release_backtrace(void *addr)
 
 	// The given address is released so remove it from addrmap.
 	addrmap.erase(addrit);
+
+	return free_action_t::release;
+}
+
+bool get_object_size(void *addr, size_t *size)
+{
+	std::lock_guard<std::recursive_mutex> lock(container_mutex);
+
+	const auto &addrit = addrmap.find(addr);
+	if (addrit == addrmap.end())
+		return false;
+
+	*size = addrit->second.size;
+
+	return true;
 }
 
 static void get_backtrace_string_flamegraph(void *addr, const char *semicolon,

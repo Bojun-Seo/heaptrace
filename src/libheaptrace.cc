@@ -202,8 +202,8 @@ __visible_default void operator delete(void *ptr) noexcept
 	tfs->hook_guard = true;
 
 	pr_dbg("operator delete(%p)\n", ptr);
-	release_backtrace(ptr);
-	real_free(ptr);
+	if (release_backtrace(ptr) == free_action_t::release)
+		real_free(ptr);
 
 	tfs->hook_guard = false;
 }
@@ -220,8 +220,8 @@ __visible_default void operator delete[](void *ptr) noexcept
 	tfs->hook_guard = true;
 
 	pr_dbg("operator delete[](%p)\n", ptr);
-	release_backtrace(ptr);
-	real_free(ptr);
+	if (release_backtrace(ptr) == free_action_t::release)
+		real_free(ptr);
 
 	tfs->hook_guard = false;
 }
@@ -256,8 +256,8 @@ extern "C" __visible_default void free(void *ptr)
 	tfs->hook_guard = true;
 
 	pr_dbg("free(%p)\n", ptr);
-	release_backtrace(ptr);
-	real_free(ptr);
+	if (release_backtrace(ptr) == free_action_t::release)
+		real_free(ptr);
 
 	tfs->hook_guard = false;
 }
