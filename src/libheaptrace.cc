@@ -16,6 +16,7 @@
 #include <string>
 
 #include "compiler.h"
+#include "dsan.h"
 #include "heaptrace.h"
 #include "sighandler.h"
 #include "stacktrace.h"
@@ -146,6 +147,9 @@ __destructor static void heaptrace_fini()
 	}
 
 	dump_stackmap(opts.sort_keys, opts.flamegraph);
+
+	if (opts.dsan)
+		dsan_dump_summary();
 
 	if (opts.outfile)
 		fclose(outfp);
@@ -289,6 +293,17 @@ extern "C" __visible_default void *realloc(void *ptr, size_t size)
 
 	tfs->hook_guard = true;
 
+	if (unlikely(opts.dsan && ptr && dsan_is_freed(ptr))) {
+		// The object must not reach the allocator again, so fail the
+		// request instead of touching it.
+		release_backtrace(ptr);
+		pr_dbg("realloc(%p, %zd) = (double free)\n", ptr, size);
+
+		tfs->hook_guard = false;
+
+		return nullptr;
+	}
+
 	void *p = real_realloc(ptr, size);
 	pr_dbg("realloc(%p, %zd) = %p\n", ptr, size, p);
 	release_backtrace(ptr);
@@ -401,6 +416,16 @@ extern "C" __visible_default void *reallocarray(void *ptr, size_t nmemb, size_t 
 		return real_reallocarray(ptr, nmemb, size);
 
 	tfs->hook_guard = true;
+
+	if (unlikely(opts.dsan && ptr && dsan_is_freed(ptr))) {
+		// see the realloc() hook above
+		release_backtrace(ptr);
+		pr_dbg("reallocarray(%p, %zd, %zd) = (double free)\n", ptr, nmemb, size);
+
+		tfs->hook_guard = false;
+
+		return nullptr;
+	}
 
 	void *p = real_reallocarray(ptr, nmemb, size);
 	pr_dbg("reallocarray(%p, %zd, %zd) = %p\n", ptr, nmemb, size, p);

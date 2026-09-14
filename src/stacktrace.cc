@@ -72,6 +72,9 @@ free_action_t __release_backtrace(void *addr, stack_trace_t &stack_trace, int np
 
 	pr_dbg("  release_backtrace(%p)\n", addr);
 
+	if (unlikely(opts.dsan) && dsan_report_double_free(addr, stack_trace, nptrs))
+		return free_action_t::skip;
+
 	const auto &addrit = addrmap.find(addr);
 	if (unlikely(addrit == addrmap.end()))
 		return free_action_t::release;
