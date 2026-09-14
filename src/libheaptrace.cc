@@ -85,6 +85,9 @@ __constructor static void heaptrace_init()
 	real_valloc = (VallocFunction)dlsym(RTLD_NEXT, "valloc");
 	real_reallocarray = (ReallocArrayFunction)dlsym(RTLD_NEXT, "reallocarray");
 
+	// dsan releases the objects it has quarantined by itself
+	dsan_init(real_free);
+
 	// initialize signal handlers
 	sighandler_init();
 

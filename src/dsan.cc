@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include <chrono>
 #include <iomanip>
@@ -13,6 +14,9 @@
 #include "heaptrace.h"
 #include "stacktrace.h"
 #include "utils.h"
+
+// Reading this pattern back is a hint of a use after free.
+#define DSAN_POISON_BYTE 0x5a
 
 // A report goes to stderr in flamegraph mode because outfp carries the
 // folded stacks there and must not be mixed with anything else.
@@ -28,6 +32,7 @@ struct free_info_t {
 	time_point_t free_time;
 	// the position of this record in the free history
 	uint64_t serial;
+	bool quarantined;
 };
 
 /*
@@ -47,10 +52,18 @@ struct report_info_t {
 
 static std::map<stack_trace_t, report_info_t> reportmap;
 
+static uint64_t quarantine_size;
 static size_t double_free_count;
 static size_t ignored_count;
 
+static real_free_fn_t real_free_fn;
+
 static std::recursive_mutex dsan_mutex;
+
+void dsan_init(real_free_fn_t fn)
+{
+	real_free_fn = fn;
+}
 
 static void release_oldest(void)
 {
@@ -63,6 +76,12 @@ static void release_oldest(void)
 	if (unlikely(it == freemap.end()))
 		return;
 
+	if (it->second.quarantined) {
+		quarantine_size -= it->second.size;
+		if (likely(real_free_fn != nullptr))
+			real_free_fn(addr);
+	}
+
 	freemap.erase(it);
 }
 
@@ -70,7 +89,8 @@ static void release_oldest(void)
 // freed before.
 static void shrink_history(void)
 {
-	while (!free_order.empty() && free_order.size() > opts.dsan_history)
+	while (!free_order.empty() &&
+	       (free_order.size() > opts.dsan_history || quarantine_size > opts.dsan_quarantine))
 		release_oldest();
 }
 
@@ -145,8 +165,8 @@ bool dsan_report_double_free(void *addr, stack_trace_t &stack_trace, int nptrs)
 	return true;
 }
 
-void dsan_record_free(void *addr, const object_info_t &object_info, size_t alloc_depth,
-		      stack_trace_t &stack_trace, int nptrs)
+free_action_t dsan_record_free(void *addr, const object_info_t &object_info, size_t alloc_depth,
+			       stack_trace_t &stack_trace, int nptrs)
 {
 	std::lock_guard<std::recursive_mutex> lock(dsan_mutex);
 	struct free_info_t free_info {};
@@ -159,11 +179,24 @@ void dsan_record_free(void *addr, const object_info_t &object_info, size_t alloc
 	free_info.tid = utils::gettid();
 	free_info.free_time = std::chrono::steady_clock::now();
 	free_info.serial = free_serial++;
+	free_info.quarantined = opts.dsan_quarantine > 0;
+
+	if (free_info.quarantined) {
+		/*
+		 * The allocator could hand the address out again through a
+		 * path heaptrace doesn't hook, and the free of that new object
+		 * would look like a double free of this one.
+		 */
+		memset(addr, DSAN_POISON_BYTE, free_info.size);
+		quarantine_size += free_info.size;
+	}
 
 	freemap[addr] = free_info;
 	free_order[free_info.serial] = addr;
 
 	shrink_history();
+
+	return free_info.quarantined ? free_action_t::skip : free_action_t::release;
 }
 
 void dsan_forget(void *addr)
@@ -174,7 +207,11 @@ void dsan_forget(void *addr)
 	if (likely(it == freemap.end()))
 		return;
 
-	// The address is alive again, so the free record no longer applies.
+	// Only reachable with the quarantine off, the one case where a freed
+	// address is given back to the allocator.
+	if (it->second.quarantined)
+		quarantine_size -= it->second.size;
+
 	free_order.erase(it->second.serial);
 	freemap.erase(it);
 }
@@ -220,6 +257,7 @@ void dsan_clear(void)
 
 	freemap.clear();
 	reportmap.clear();
+	quarantine_size = 0;
 	double_free_count = 0;
 	ignored_count = 0;
 }

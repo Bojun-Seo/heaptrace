@@ -43,7 +43,8 @@ void __record_backtrace(size_t size, void *addr, stack_trace_t &stack_trace, int
 
 	pr_dbg("  record_backtrace(%zd, %p)\n", size, addr);
 
-	if (unlikely(opts.dsan))
+	// A free record can only go stale with the quarantine off.
+	if (unlikely(opts.dsan && !opts.dsan_quarantine))
 		dsan_forget(addr);
 
 	if (stackmap.find(stack_trace) == stackmap.end()) {
@@ -97,13 +98,14 @@ free_action_t __release_backtrace(void *addr, stack_trace_t &stack_trace, int np
 		stackmap.erase(stackit);
 	}
 
+	free_action_t action = free_action_t::release;
 	if (unlikely(opts.dsan))
-		dsan_record_free(addr, object_info, alloc_depth, stack_trace, nptrs);
+		action = dsan_record_free(addr, object_info, alloc_depth, stack_trace, nptrs);
 
 	// The given address is released so remove it from addrmap.
 	addrmap.erase(addrit);
 
-	return free_action_t::release;
+	return action;
 }
 
 bool get_object_size(void *addr, size_t *size)
