@@ -24,48 +24,16 @@
 #include "stacktrace.h"
 #include "utils.h"
 
-#define SYMBOL_MAXLEN 128
-
 #if (__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 33)
 #define GLIBC_233_OR_LATER
 #endif
 
+#define SYMBOL_MAXLEN 128
+
 std::map<stack_trace_t, stack_info_t> stackmap;
 std::map<addr_t, object_info_t> addrmap;
-std::vector<std::string> ignorevec;
-bool ignorevec_initialized = false;
 
 std::recursive_mutex container_mutex;
-
-static void lazyinit_ignorevec()
-{
-	if (ignorevec_initialized)
-		return;
-
-	opts.ignore = getenv("HEAPTRACE_IGNORE");
-	if (opts.ignore) {
-		std::ifstream file(opts.ignore);
-		if (file.is_open()) {
-			std::string line;
-			while (std::getline(file, line)) {
-				ignorevec.push_back(line);
-			}
-			file.close();
-		}
-		else {
-			pr_out("Failed to open file %s\n", opts.ignore);
-		}
-	}
-	ignorevec_initialized = true;
-}
-
-static bool is_ignored(const std::string &report)
-{
-	lazyinit_ignorevec();
-	return std::any_of(ignorevec.begin(), ignorevec.end(), [&report](const std::string &s) {
-		return report.find(s) != std::string::npos;
-	});
-}
 
 // record_backtrace() is defined in stacktrace.h as an inline function.
 void __record_backtrace(size_t size, void *addr, stack_trace_t &stack_trace, int nptrs)
@@ -125,44 +93,6 @@ void release_backtrace(void *addr)
 	addrmap.erase(addrit);
 }
 
-static void get_backtrace_string(int count, void *addr, std::stringstream &ss_bt)
-{
-	Dl_info dlip;
-	char *symbol;
-	int offset;
-	int status;
-	int dl_ret;
-	int len = SYMBOL_MAXLEN;
-
-	ss_bt << std::dec << count << " [0x" << std::hex << std::setw(4 + __SIZEOF_LONG__)
-	      << (unsigned long)addr << "] ";
-	// dladdr() translates address to symbolic info.
-	dl_ret = dladdr(addr, &dlip);
-	if (dl_ret == 0) {
-		ss_bt << "?\n";
-		return;
-	}
-
-	if (dlip.dli_sname != nullptr && dlip.dli_saddr != nullptr) {
-		symbol = abi::__cxa_demangle(dlip.dli_sname, nullptr, nullptr, &status);
-		if (status != 0)
-			symbol = strdup(dlip.dli_sname);
-
-		if (strlen(symbol) > len) {
-			symbol[len - 3] = '.';
-			symbol[len - 2] = '.';
-			symbol[len - 1] = '.';
-			symbol[len] = '\0';
-		}
-		offset = static_cast<int>(static_cast<char *>(addr) -
-					  static_cast<char *>(dlip.dli_saddr));
-		ss_bt << symbol << " +0x" << offset << " ";
-		free(symbol);
-	}
-	offset = (int)((char *)addr - (char *)(dlip.dli_fbase));
-	ss_bt << "(" << dlip.dli_fname << " +0x" << offset << ")\n";
-}
-
 static void get_backtrace_string_flamegraph(void *addr, const char *semicolon,
 					    std::stringstream &ss_bt)
 {
@@ -204,70 +134,6 @@ static void get_backtrace_string_flamegraph(void *addr, const char *semicolon,
 	}
 }
 
-static std::string get_delta_time_unit(std::chrono::nanoseconds delta)
-{
-	std::string str;
-
-	auto h = std::chrono::duration_cast<std::chrono::hours>(delta);
-	delta -= h;
-
-	auto mins = std::chrono::duration_cast<std::chrono::minutes>(delta);
-	delta -= mins;
-
-	auto secs = std::chrono::duration_cast<std::chrono::seconds>(delta);
-	delta -= secs;
-
-	auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(delta);
-	delta -= millis;
-
-	auto micros = std::chrono::duration_cast<std::chrono::microseconds>(delta);
-	delta -= micros;
-
-	auto nanos = delta;
-
-	if (h.count() > 0)
-		str = utils::asprintf("%" PRId64 " hours %" PRId64 " mins", h.count(),
-				      mins.count());
-	else if (mins.count() > 0)
-		str = utils::asprintf("%" PRId64 " mins %" PRId64 " secs", mins.count(),
-				      secs.count());
-	else if (secs.count() > 0)
-		str = utils::asprintf("%" PRId64 ".%" PRId64 " secs", secs.count(), millis.count());
-	else if (millis.count() > 0)
-		str = utils::asprintf("%" PRId64 ".%" PRId64 " ms", millis.count(), micros.count());
-	else if (micros.count() > 0)
-		str = utils::asprintf("%" PRId64 ".%" PRId64 " us", micros.count(), nanos.count());
-	else
-		str = utils::asprintf("%" PRId64 " ns", nanos.count());
-
-	return str;
-}
-
-static std::string get_byte_unit(uint64_t size)
-{
-	std::string str;
-	int ret;
-
-	utils::bytes sz(size);
-
-	auto mb = std::chrono::duration_cast<utils::megabytes>(sz);
-	sz -= mb;
-
-	auto kb = std::chrono::duration_cast<utils::kilobytes>(sz);
-	sz -= kb;
-
-	auto b = sz;
-
-	if (mb.count() > 0)
-		str = utils::asprintf("%" PRId64 ".%" PRId64 " MB", mb.count(), kb.count());
-	else if (kb.count() > 0)
-		str = utils::asprintf("%" PRId64 ".%" PRId64 " KB", kb.count(), b.count());
-	else
-		str = utils::asprintf("%" PRId64 " bytes", b.count());
-
-	return str;
-}
-
 std::string read_statm()
 {
 	long vss;
@@ -281,8 +147,8 @@ std::string read_statm()
 	rss *= pagesize_kb;
 	shared *= pagesize_kb;
 
-	std::string str =
-		get_byte_unit(vss) + " / " + get_byte_unit(rss) + " / " + get_byte_unit(shared);
+	std::string str = utils::get_byte_unit(vss) + " / " + utils::get_byte_unit(rss) + " / " +
+			  utils::get_byte_unit(shared);
 	return str;
 }
 
@@ -317,12 +183,12 @@ print_dump_stackmap_footer(const std::vector<std::pair<stack_trace_t, stack_info
 	pr_out("[heaptrace] heap traced num of backtrace : %zd\n", stack_size);
 
 	pr_out("[heaptrace] heap traced allocation size  : %s\n",
-	       get_byte_unit(total_size).c_str());
+	       utils::get_byte_unit(total_size).c_str());
 
 	pr_out("[heaptrace] allocator info (virtual)     : %s\n",
-	       get_byte_unit(minfo.arena + minfo.hblkhd).c_str());
+	       utils::get_byte_unit(minfo.arena + minfo.hblkhd).c_str());
 	pr_out("[heaptrace] allocator info (resident)    : %s\n",
-	       get_byte_unit(minfo.uordblks).c_str());
+	       utils::get_byte_unit(minfo.uordblks).c_str());
 
 	pr_out("[heaptrace] statm info (VSS/RSS/shared)  : %s\n", read_statm().c_str());
 }
@@ -338,19 +204,20 @@ static void print_dump_stackmap(std::vector<std::pair<stack_trace_t, stack_info_
 	while (i < stack_size && i < top) {
 		const stack_info_t &info = sorted_stack[i].second;
 		const stack_trace_t &stack_trace = sorted_stack[i].first;
-		std::string age = get_delta_time_unit(current - info.birth_time);
+		std::string age = utils::get_delta_time_unit(current - info.birth_time);
 		std::stringstream ss_intro;
 		std::stringstream ss_bt;
 
 		ss_intro << "=== backtrace #" << cnt << " === [count/peak: " << info.count << "/"
 			 << info.peak_count << "] "
-			 << "[size/peak: " << get_byte_unit(info.total_size) << "/"
-			 << get_byte_unit(info.peak_total_size) << "] [age: " << age << "]\n";
+			 << "[size/peak: " << utils::get_byte_unit(info.total_size) << "/"
+			 << utils::get_byte_unit(info.peak_total_size) << "] [age: " << age
+			 << "]\n";
 		ss_bt << std::setfill('0');
 		for (int j = 0; j < info.stack_depth; j++)
-			get_backtrace_string(j, stack_trace[j], ss_bt);
+			utils::get_backtrace_string(j, stack_trace[j], ss_bt);
 
-		if (is_ignored(ss_bt.str())) {
+		if (utils::is_ignored(ss_bt.str())) {
 			++top;
 		}
 		else {
@@ -381,7 +248,7 @@ print_dump_stackmap_flamegraph(std::vector<std::pair<stack_trace_t, stack_info_t
 							semicolon, ss_bt);
 			semicolon = ";";
 		}
-		if (is_ignored(ss_bt.str())) {
+		if (utils::is_ignored(ss_bt.str())) {
 			++top;
 		}
 		else {
