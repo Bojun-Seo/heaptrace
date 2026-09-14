@@ -153,8 +153,8 @@ static void get_backtrace_string(int count, void *addr, std::stringstream &ss_bt
 			symbol[len - 1] = '.';
 			symbol[len] = '\0';
 		}
-		offset = static_cast<int>(static_cast<int *>(addr) -
-					  static_cast<int *>(dlip.dli_saddr));
+		offset = static_cast<int>(static_cast<char *>(addr) -
+					  static_cast<char *>(dlip.dli_saddr));
 		ss_bt << symbol << " +0x" << offset << " ";
 		free(symbol);
 	}
@@ -187,8 +187,8 @@ static void get_backtrace_string_flamegraph(void *addr, const char *semicolon,
 			symbol[len - 1] = '.';
 			symbol[len] = '\0';
 		}
-		offset = static_cast<int>(static_cast<int *>(addr) -
-					  static_cast<int *>(dlip.dli_saddr));
+		offset = static_cast<int>(static_cast<char *>(addr) -
+					  static_cast<char *>(dlip.dli_saddr));
 		ss_bt << semicolon << symbol << "+0x" << offset;
 		free(symbol);
 	}
