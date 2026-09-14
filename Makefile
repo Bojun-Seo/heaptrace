@@ -53,7 +53,8 @@ endif
 TARGETS := heaptrace libheaptrace.so
 
 # for libheaptrace.so
-LIB_SRCS := src/libheaptrace.cc src/stacktrace.cc src/sighandler.cc src/utils.cc
+LIB_SRCS := src/libheaptrace.cc src/stacktrace.cc src/sighandler.cc src/utils.cc \
+            src/dsan.cc
 LIB_OBJS := $(patsubst %.cc,$(objdir)/%.o,$(LIB_SRCS))
 
 # for heaptrace

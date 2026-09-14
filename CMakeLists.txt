@@ -15,7 +15,7 @@ endif(NOT DEFINED DEPTH)
 add_compile_definitions(DEPTH=${DEPTH})
 
 add_library(libheaptrace SHARED src/libheaptrace.cc src/stacktrace.cc
-                                src/sighandler.cc src/utils.cc)
+                                src/sighandler.cc src/utils.cc src/dsan.cc)
 set_property(TARGET libheaptrace PROPERTY OUTPUT_NAME heaptrace)
 
 add_executable(heaptrace src/heaptrace.cc)

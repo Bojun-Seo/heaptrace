@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "compiler.h"
+#include "dsan.h"
 #include "heaptrace.h"
 #include "stacktrace.h"
 #include "utils.h"
@@ -41,6 +42,9 @@ void __record_backtrace(size_t size, void *addr, stack_trace_t &stack_trace, int
 	std::lock_guard<std::recursive_mutex> lock(container_mutex);
 
 	pr_dbg("  record_backtrace(%zd, %p)\n", size, addr);
+
+	if (unlikely(opts.dsan))
+		dsan_forget(addr);
 
 	if (stackmap.find(stack_trace) == stackmap.end()) {
 		// Record the creation time for the stack_trace
@@ -80,12 +84,18 @@ free_action_t __release_backtrace(void *addr, stack_trace_t &stack_trace, int np
 		return free_action_t::release;
 
 	stack_info_t &stack_info = stackit->second;
+	// The stack depth has to be read before the stackmap entry is erased.
+	size_t alloc_depth = stack_info.stack_depth;
+
 	stack_info.total_size -= object_info.size;
 	stack_info.count--;
 	if (stack_info.count == 0) {
 		// The stackmap for the given stacktrace is no longer needed.
 		stackmap.erase(stackit);
 	}
+
+	if (unlikely(opts.dsan))
+		dsan_record_free(addr, object_info, alloc_depth, stack_trace, nptrs);
 
 	// The given address is released so remove it from addrmap.
 	addrmap.erase(addrit);
@@ -344,6 +354,7 @@ void clear_stackmap(void)
 
 	stackmap.clear();
 	addrmap.clear();
+	dsan_clear();
 
 	tfs->hook_guard = false;
 }
