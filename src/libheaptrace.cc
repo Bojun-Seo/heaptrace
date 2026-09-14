@@ -287,6 +287,8 @@ extern "C" __visible_default void *calloc(size_t nmemb, size_t size)
 extern "C" __visible_default void *realloc(void *ptr, size_t size)
 {
 	auto *tfs = &thread_flags;
+	size_t old_size = 0;
+	void *p;
 
 	if (unlikely(tfs->hook_guard || !initialized))
 		return __libc_realloc(ptr, size);
@@ -304,10 +306,30 @@ extern "C" __visible_default void *realloc(void *ptr, size_t size)
 		return nullptr;
 	}
 
-	void *p = real_realloc(ptr, size);
-	pr_dbg("realloc(%p, %zd) = %p\n", ptr, size, p);
-	release_backtrace(ptr);
-	record_backtrace(size, p);
+	if (unlikely(opts.dsan && (!ptr || get_object_size(ptr, &old_size)))) {
+		/*
+		 * Split realloc() so that the old object goes through the dsan
+		 * quarantine instead of being released by the allocator before
+		 * dsan sees it.  In-place expansion is given up in return.
+		 */
+		p = size ? real_malloc(size) : nullptr;
+		if (p && ptr)
+			memcpy(p, ptr, old_size < size ? old_size : size);
+		pr_dbg("realloc(%p, %zd) = %p\n", ptr, size, p);
+
+		// the old object is kept when the new one cannot be allocated
+		if (ptr && (p || !size)) {
+			if (release_backtrace(ptr) == free_action_t::release)
+				real_free(ptr);
+		}
+		record_backtrace(size, p);
+	}
+	else {
+		p = real_realloc(ptr, size);
+		pr_dbg("realloc(%p, %zd) = %p\n", ptr, size, p);
+		release_backtrace(ptr);
+		record_backtrace(size, p);
+	}
 
 	tfs->hook_guard = false;
 
@@ -411,6 +433,9 @@ extern "C" __visible_default void *valloc(size_t size)
 extern "C" __visible_default void *reallocarray(void *ptr, size_t nmemb, size_t size)
 {
 	auto *tfs = &thread_flags;
+	size_t new_size = nmemb * size;
+	size_t old_size = 0;
+	void *p;
 
 	if (unlikely(tfs->hook_guard || !initialized))
 		return real_reallocarray(ptr, nmemb, size);
@@ -427,10 +452,25 @@ extern "C" __visible_default void *reallocarray(void *ptr, size_t nmemb, size_t 
 		return nullptr;
 	}
 
-	void *p = real_reallocarray(ptr, nmemb, size);
-	pr_dbg("reallocarray(%p, %zd, %zd) = %p\n", ptr, nmemb, size, p);
-	release_backtrace(ptr);
-	record_backtrace(nmemb * size, p);
+	if (unlikely(opts.dsan && (!ptr || get_object_size(ptr, &old_size)))) {
+		// see the realloc() hook above
+		p = new_size ? real_malloc(new_size) : nullptr;
+		if (p && ptr)
+			memcpy(p, ptr, old_size < new_size ? old_size : new_size);
+		pr_dbg("reallocarray(%p, %zd, %zd) = %p\n", ptr, nmemb, size, p);
+
+		if (ptr && (p || !new_size)) {
+			if (release_backtrace(ptr) == free_action_t::release)
+				real_free(ptr);
+		}
+		record_backtrace(new_size, p);
+	}
+	else {
+		p = real_reallocarray(ptr, nmemb, size);
+		pr_dbg("reallocarray(%p, %zd, %zd) = %p\n", ptr, nmemb, size, p);
+		release_backtrace(ptr);
+		record_backtrace(new_size, p);
+	}
 
 	tfs->hook_guard = false;
 
